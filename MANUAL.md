@@ -29,7 +29,7 @@ Debes ejecutar el archivo `main.py` desde la línea de comandos utilizando Pytho
 
 ### Parámetros Disponibles
 
-- `--source`: **Requerido**. Puede ser `yfinance` u `oanda`.
+- `--source`: **Requerido**. Puede ser `yfinance`, `oanda`, `fxcm` o `dukascopy`.
 - `--symbol`: **Requerido**. El par o ticker a procesar (ej. `EURUSD=X`, `BTC-USD`).
 - `--start`: Fecha de inicio en formato `YYYY-MM-DD` (por defecto `2024-01-01`).
 - `--end`: Fecha de fin en formato `YYYY-MM-DD` (por defecto es hoy).
@@ -61,6 +61,17 @@ python main.py --source oanda --symbol EUR_USD --oanda-key "TU_API_KEY"
 **Ejemplo 4: Ejecución rápida sin generar imágenes individuales (solo resultados y CSV en logs/)**
 ```bash
 python main.py --source yfinance --symbol GBPUSD=X --no-trades
+```
+
+**Ejemplo 5: Ejecución usando FXCM**
+*(Requiere que tengas configurada la variable de entorno `FXCM_API_KEY` o que la pases como parámetro).*
+```bash
+python main.py --source fxcm --symbol EUR/USD --fxcm-key "TU_API_KEY"
+```
+
+**Ejemplo 6: Ejecución usando Dukascopy (Datos históricos gratuitos nativos)**
+```bash
+python main.py --source dukascopy --symbol EURUSD --start 2024-01-01
 ```
 
 ## 4. Notas Adicionales

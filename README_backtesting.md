@@ -8,8 +8,8 @@ Sistema de backtesting basado en el documento **"Estrategia Profesional de Tradi
 
 ```bash
 pip install pandas numpy matplotlib yfinance
-# Solo si usas OANDA:
-pip install oandapyV20
+# Si usas OANDA o FXCM:
+pip install oandapyV20 fxcmpy
 ```
 
 ---
@@ -53,24 +53,63 @@ python main.py \
   --mode both
 ```
 
+### Con FXCM
+
+```bash
+# Requiere API key de FXCM
+python main.py \
+  --source fxcm \
+  --symbol "EUR/USD" \
+  --start 2023-01-01 \
+  --end   2024-12-31 \
+  --fxcm-key TU_API_KEY \
+  --capital 10000 \
+  --mode both
+```
+
+### Con Dukascopy
+
+```bash
+# Datos históricos gratuitos (descarga y procesa archivos .bi5 automáticamente)
+python main.py \
+  --source dukascopy \
+  --symbol "EURUSD" \
+  --start 2023-01-01 \
+  --end   2023-02-01 \
+  --capital 10000 \
+  --mode both
+```
+
 ---
 
 ## Parámetros completos
 
 | Parámetro        | Descripción                                    | Defecto        |
 |------------------|------------------------------------------------|----------------|
-| `--source`       | `yfinance` o `oanda`                           | requerido      |
-| `--symbol`       | Ticker o par (ver tabla abajo)                 | requerido      |
+| `--source`       | `yfinance`, `oanda`, `fxcm` o `dukascopy`      | requerido      |
+| `--symbol`       | Ticker o par (ver dependencias de formato)     | requerido      |
 | `--start`        | Fecha inicio `YYYY-MM-DD`                      | `2024-01-01`   |
 | `--end`          | Fecha fin    `YYYY-MM-DD`                      | hoy            |
 | `--capital`      | Capital inicial en USD                         | `10000`        |
 | `--risk`         | Riesgo por operación (0–1)                     | `0.01` (1%)    |
 | `--mode`         | Modo de estrategia: `long`, `short` o `both`   | `both`         |
 | `--oanda-key`    | API key de OANDA                               | `OANDA_API_KEY`|
+| `--fxcm-key`     | API key de FXCM                                | `FXCM_API_KEY` |
 | `--oanda-env`    | Entorno OANDA (`practice` / `live`)            | `practice`     |
 | `--output`       | Ruta del gráfico PNG global                    | `backtest_results.png` |
 | `--no-plot`      | Omitir generación del gráfico global           | —              |
 | `--no-trades`    | Omitir la generación de gráficos individuales  | —              |
+
+---
+
+## Formato de Símbolos por Fuente
+
+| Fuente     | Formato Típico | Ejemplo     |
+|------------|----------------|-------------|
+| yFinance   | `BASEQUOTE=X`  | `EURUSD=X`  |
+| OANDA      | `BASE_QUOTE`   | `EUR_USD`   |
+| FXCM       | `BASE/QUOTE`   | `EUR/USD`   |
+| Dukascopy  | `BASEQUOTE`    | `EURUSD`    |
 
 ---
 

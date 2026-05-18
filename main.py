@@ -18,8 +18,8 @@ def parse_args():
         description="Backtesting – Estrategia Multi-Timeframe Forex/Crypto",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    p.add_argument("--source",   choices=["yfinance", "oanda", "fxcm"], required=True,
-                   help="Fuente de datos: yfinance | oanda | fxcm")
+    p.add_argument("--source",   choices=["yfinance", "oanda", "fxcm", "dukascopy"], required=True,
+                   help="Fuente de datos: yfinance | oanda | fxcm | dukascopy")
     p.add_argument("--symbol",   required=True,
                    help="Par o ticker (ej. EURUSD=X, BTC-USD)")
     p.add_argument("--start",    default="2024-01-01",
