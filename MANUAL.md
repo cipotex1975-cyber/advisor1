@@ -64,9 +64,9 @@ python main.py --source yfinance --symbol GBPUSD=X --no-trades
 ```
 
 **Ejemplo 5: Ejecución usando FXCM**
-*(Requiere que tengas configurada la variable de entorno `FXCM_API_KEY` o que la pases como parámetro).*
+*(Requiere que tengas configuradas las variables de entorno `FXCM_USER` y `FXCM_PASS` o que las pases como parámetro).*
 ```bash
-python main.py --source fxcm --symbol EUR/USD --fxcm-key "TU_API_KEY"
+python main.py --source fxcm --symbol EUR/USD --fxcm-user "TU_USUARIO" --fxcm-pass "TU_PASSWORD"
 ```
 
 **Ejemplo 6: Ejecución usando Dukascopy (Datos históricos gratuitos nativos)**

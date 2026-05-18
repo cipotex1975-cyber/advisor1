@@ -32,8 +32,12 @@ def parse_args():
                    help="Riesgo por operación 0-1  (default: 0.01 = 1%%)")
     p.add_argument("--oanda-key", default=None,
                    help="API key de OANDA (o usa OANDA_API_KEY)")
-    p.add_argument("--fxcm-key", default=None,
-                   help="API key de FXCM (o usa FXCM_API_KEY)")
+    p.add_argument("--fxcm-user", default=None,
+                   help="Usuario de FXCM (o usa FXCM_USER)")
+    p.add_argument("--fxcm-pass", default=None,
+                   help="Password de FXCM (o usa FXCM_PASS)")
+    p.add_argument("--fxcm-env", default="demo", choices=["demo","real"],
+                   help="Entorno FXCM  (default: demo)")
     p.add_argument("--oanda-env", default="practice", choices=["practice","live"],
                    help="Entorno OANDA  (default: practice)")
     p.add_argument("--output",   default="backtest_results.png",
@@ -64,7 +68,9 @@ def main():
         end=args.end,
         oanda_key=args.oanda_key,
         oanda_env=args.oanda_env,
-        fxcm_key=args.fxcm_key
+        fxcm_user=args.fxcm_user,
+        fxcm_pass=args.fxcm_pass,
+        fxcm_env=args.fxcm_env
     )
 
     # ── 2. Indicadores y Alineación ──────────────────────

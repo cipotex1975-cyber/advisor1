@@ -181,7 +181,7 @@ def load_oanda_tf(symbol: str, granularity: str, start: str, end: str, api_key: 
             return df_cache
         sys.exit(f"[ERROR] Sin datos de OANDA para {symbol} en {granularity}.")
 
-def load_fxcm_tf(symbol: str, granularity: str, start: str, end: str, api_key: Optional[str]=None) -> pd.DataFrame:
+def load_fxcm_tf(symbol: str, granularity: str, start: str, end: str, fxcm_user: Optional[str]=None, fxcm_pass: Optional[str]=None, fxcm_env: str="demo") -> pd.DataFrame:
     # FXCM granularities mapping for file names (to match user expected 15m, 1h, 4h, 1d)
     gran_map = {"M15": "15m", "H1": "1h", "H4": "4h", "D": "1d"}
     file_tf = gran_map.get(granularity, granularity)
@@ -200,13 +200,20 @@ def load_fxcm_tf(symbol: str, granularity: str, start: str, end: str, api_key: O
     except ImportError:
         sys.exit("[ERROR] Instala fxcmpy: pip install fxcmpy")
 
-    if not api_key:
-        api_key = os.environ.get("FXCM_API_KEY", "")
-    if not api_key:
-        sys.exit("[ERROR] FXCM API key requerida.")
+    if not fxcm_user:
+        fxcm_user = os.environ.get("FXCM_USER", "")
+    if not fxcm_pass:
+        fxcm_pass = os.environ.get("FXCM_PASS", "")
+    if not fxcm_user or not fxcm_pass:
+        sys.exit("[ERROR] FXCM usuario y contraseña requeridos.")
 
     try:
-        con = fxcmpy.fxcmpy(access_token=api_key, log_level='error')
+        con = fxcmpy.fxcmpy(
+            server=fxcm_env,
+            login=fxcm_user,
+            password=fxcm_pass,
+            log_level='error'
+        )
     except Exception as e:
         sys.exit(f"[ERROR] FXCM conexión: {e}")
 
@@ -343,7 +350,7 @@ def load_dukascopy_tf(symbol: str, tf: str, start: str, end: str) -> pd.DataFram
             return df_cache
         sys.exit(f"[ERROR] Sin datos de Dukascopy para {symbol} en {tf}.")
 
-def load_multi_timeframe(source: str, symbol: str, start: str, end: str, oanda_key: Optional[str]=None, oanda_env: str="practice", fxcm_key: Optional[str]=None) -> Dict[str, pd.DataFrame]:
+def load_multi_timeframe(source: str, symbol: str, start: str, end: str, oanda_key: Optional[str]=None, oanda_env: str="practice", fxcm_user: Optional[str]=None, fxcm_pass: Optional[str]=None, fxcm_env: str="demo") -> Dict[str, pd.DataFrame]:
     """Descarga o carga de caché los 4 timeframes requeridos."""
     dfs = {}
     
@@ -367,13 +374,15 @@ def load_multi_timeframe(source: str, symbol: str, start: str, end: str, oanda_k
             dfs[key] = load_oanda_tf(symbol, gran, start, end, oanda_key, env=oanda_env)
     elif source == "fxcm":
         tfs = {"1d": "D", "4h": "H4", "1h": "H1", "15m": "M15"}
-        if not fxcm_key:
-            fxcm_key = os.environ.get("FXCM_API_KEY", "")
-        if not fxcm_key:
-            sys.exit("[ERROR] FXCM API key requerida.")
+        if not fxcm_user:
+            fxcm_user = os.environ.get("FXCM_USER", "")
+        if not fxcm_pass:
+            fxcm_pass = os.environ.get("FXCM_PASS", "")
+        if not fxcm_user or not fxcm_pass:
+            sys.exit("[ERROR] FXCM usuario y contraseña requeridos.")
 
         for key, gran in tfs.items():
-            dfs[key] = load_fxcm_tf(symbol, gran, start, end, api_key=fxcm_key)
+            dfs[key] = load_fxcm_tf(symbol, gran, start, end, fxcm_user=fxcm_user, fxcm_pass=fxcm_pass, fxcm_env=fxcm_env)
     elif source == "dukascopy":
         tfs = {"1d": "1d", "4h": "4h", "1h": "1h", "15m": "15m"}
         for key, tf in tfs.items():

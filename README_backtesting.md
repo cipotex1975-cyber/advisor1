@@ -56,13 +56,14 @@ python main.py \
 ### Con FXCM
 
 ```bash
-# Requiere API key de FXCM
+# Requiere credenciales de FXCM
 python main.py \
   --source fxcm \
   --symbol "EUR/USD" \
   --start 2023-01-01 \
   --end   2024-12-31 \
-  --fxcm-key TU_API_KEY \
+  --fxcm-user TU_USUARIO \
+  --fxcm-pass TU_PASSWORD \
   --capital 10000 \
   --mode both
 ```
@@ -94,8 +95,10 @@ python main.py \
 | `--risk`         | Riesgo por operación (0–1)                     | `0.01` (1%)    |
 | `--mode`         | Modo de estrategia: `long`, `short` o `both`   | `both`         |
 | `--oanda-key`    | API key de OANDA                               | `OANDA_API_KEY`|
-| `--fxcm-key`     | API key de FXCM                                | `FXCM_API_KEY` |
+| `--fxcm-user`    | Usuario de FXCM                                | `FXCM_USER`    |
+| `--fxcm-pass`    | Contraseña de FXCM                             | `FXCM_PASS`    |
 | `--oanda-env`    | Entorno OANDA (`practice` / `live`)            | `practice`     |
+| `--fxcm-env`     | Entorno FXCM (`demo` / `real`)                 | `demo`         |
 | `--output`       | Ruta del gráfico PNG global                    | `backtest_results.png` |
 | `--no-plot`      | Omitir generación del gráfico global           | —              |
 | `--no-trades`    | Omitir la generación de gráficos individuales  | —              |
