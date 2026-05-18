@@ -15,7 +15,7 @@ from strategy.indicators import align_timeframes
 from strategy.signals import generate_signals
 from utils.telegram_notifier import send_telegram_message
 
-def get_recent_data(symbol, source, oanda_key, oanda_env):
+def get_recent_data(symbol, source, oanda_key, oanda_env, fxcm_key=None):
     """
     Descarga los últimos 300 días de datos para asegurar el cálculo
     correcto de la EMA 200 en temporalidad diaria.
@@ -33,11 +33,12 @@ def get_recent_data(symbol, source, oanda_key, oanda_env):
         start=start_str,
         end=end_str,
         oanda_key=oanda_key,
-        oanda_env=oanda_env
+        oanda_env=oanda_env,
+        fxcm_key=fxcm_key
     )
     return dfs
 
-def check_market(symbol, source, oanda_key, oanda_env, tg_token, tg_chat):
+def check_market(symbol, source, oanda_key, oanda_env, tg_token, tg_chat, fxcm_key=None):
     """
     Función central que descarga datos, evalúa la última vela y
     envía notificaciones si existe una señal.
@@ -46,7 +47,7 @@ def check_market(symbol, source, oanda_key, oanda_env, tg_token, tg_chat):
     
     try:
         # 1. Obtener y alinear datos
-        dfs = get_recent_data(symbol, source, oanda_key, oanda_env)
+        dfs = get_recent_data(symbol, source, oanda_key, oanda_env, fxcm_key=fxcm_key)
         merged_df = align_timeframes(dfs)
         
         if merged_df.empty:
@@ -96,11 +97,12 @@ def check_market(symbol, source, oanda_key, oanda_env, tg_token, tg_chat):
 
 def main():
     p = argparse.ArgumentParser(description="Bot de Trading en Vivo - Envío de Señales por Telegram")
-    p.add_argument("--source", choices=["yfinance", "oanda"], required=True, help="Fuente de datos")
+    p.add_argument("--source", choices=["yfinance", "oanda", "fxcm"], required=True, help="Fuente de datos")
     p.add_argument("--symbols", nargs="+", required=True, help="Lista de símbolos a evaluar separados por espacio (ej. EURUSD=X USDCAD=X USDJPY=X)")
     p.add_argument("--telegram-token", default=os.environ.get("TELEGRAM_BOT_TOKEN", ""), help="Token del Bot de Telegram")
     p.add_argument("--telegram-chat", default=os.environ.get("TELEGRAM_CHAT_ID", ""), help="Tu Chat ID de Telegram")
     p.add_argument("--oanda-key", default=os.environ.get("OANDA_API_KEY", ""), help="API key de OANDA")
+    p.add_argument("--fxcm-key", default=os.environ.get("FXCM_API_KEY", ""), help="API key de FXCM")
     p.add_argument("--oanda-env", default="practice", choices=["practice","live"])
     p.add_argument("--run-once", action="store_true", help="Ejecutar una vez y salir (Ideal para Cron)")
     
@@ -118,7 +120,7 @@ def main():
     def job_scanner():
         """Función envoltura para escanear todos los pares uno por uno."""
         for sym in args.symbols:
-            check_market(sym, args.source, args.oanda_key, args.oanda_env, args.telegram_token, args.telegram_chat)
+            check_market(sym, args.source, args.oanda_key, args.oanda_env, args.telegram_token, args.telegram_chat, fxcm_key=args.fxcm_key)
             time.sleep(2)  # Pausa breve para evitar saturar la API (Rate Limiting)
 
     if args.run_once:

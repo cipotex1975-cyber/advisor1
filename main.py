@@ -18,8 +18,8 @@ def parse_args():
         description="Backtesting – Estrategia Multi-Timeframe Forex/Crypto",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    p.add_argument("--source",   choices=["yfinance", "oanda"], required=True,
-                   help="Fuente de datos: yfinance | oanda")
+    p.add_argument("--source",   choices=["yfinance", "oanda", "fxcm"], required=True,
+                   help="Fuente de datos: yfinance | oanda | fxcm")
     p.add_argument("--symbol",   required=True,
                    help="Par o ticker (ej. EURUSD=X, BTC-USD)")
     p.add_argument("--start",    default="2024-01-01",
@@ -32,6 +32,8 @@ def parse_args():
                    help="Riesgo por operación 0-1  (default: 0.01 = 1%%)")
     p.add_argument("--oanda-key", default=None,
                    help="API key de OANDA (o usa OANDA_API_KEY)")
+    p.add_argument("--fxcm-key", default=None,
+                   help="API key de FXCM (o usa FXCM_API_KEY)")
     p.add_argument("--oanda-env", default="practice", choices=["practice","live"],
                    help="Entorno OANDA  (default: practice)")
     p.add_argument("--output",   default="backtest_results.png",
@@ -61,7 +63,8 @@ def main():
         start=args.start,
         end=args.end,
         oanda_key=args.oanda_key,
-        oanda_env=args.oanda_env
+        oanda_env=args.oanda_env,
+        fxcm_key=args.fxcm_key
     )
 
     # ── 2. Indicadores y Alineación ──────────────────────
