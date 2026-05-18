@@ -33,8 +33,8 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # VWAP intradía
     df["date"] = df.index.date
     df["tp"]   = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["cum_tpv"] = df.groupby("date", group_keys=False).apply(lambda x: (x["tp"] * x["Volume"]).cumsum())
-    df["cum_vol"] = df.groupby("date", group_keys=False).apply(lambda x: x["Volume"].cumsum())
+    df["cum_tpv"] = (df["tp"] * df["Volume"]).groupby(df["date"]).cumsum()
+    df["cum_vol"] = df["Volume"].groupby(df["date"]).cumsum()
     df["vwap"] = df["cum_tpv"] / df["cum_vol"].replace(0, np.nan)
     df.drop(columns=["date", "tp", "cum_tpv", "cum_vol"], inplace=True)
     

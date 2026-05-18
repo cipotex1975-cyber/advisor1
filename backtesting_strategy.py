@@ -43,6 +43,10 @@ def load_yfinance(symbol: str, start: str, end: str, interval: str = "1h") -> pd
     df = yf.download(symbol, start=start, end=end, interval=interval, progress=False, auto_adjust=True)
     if df.empty:
         sys.exit(f"[ERROR] No se obtuvieron datos para {symbol} con yfinance.")
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
     df.index = pd.to_datetime(df.index)
     df.index.name = "datetime"
@@ -123,12 +127,8 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # VWAP (acumulado por sesión – aproximación diaria)
     df["date"] = df.index.date
     df["tp"]   = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["cum_tpv"] = df.groupby("date", group_keys=False).apply(
-        lambda x: (x["tp"] * x["Volume"]).cumsum()
-    )
-    df["cum_vol"] = df.groupby("date", group_keys=False).apply(
-        lambda x: x["Volume"].cumsum()
-    )
+    df["cum_tpv"] = (df["tp"] * df["Volume"]).groupby(df["date"]).cumsum()
+    df["cum_vol"] = df["Volume"].groupby(df["date"]).cumsum()
     df["vwap"] = df["cum_tpv"] / df["cum_vol"].replace(0, np.nan)
     df.drop(columns=["date", "tp", "cum_tpv", "cum_vol"], inplace=True)
 

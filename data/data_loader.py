@@ -41,6 +41,9 @@ def load_yfinance_tf(symbol: str, tf: str, start: str, end: str) -> pd.DataFrame
     df_new = yf.download(symbol, start=fetch_start, end=end, interval=tf, progress=False, auto_adjust=True)
     
     if not df_new.empty:
+        if isinstance(df_new.columns, pd.MultiIndex):
+            df_new.columns = df_new.columns.get_level_values(0)
+
         df_new.index = pd.to_datetime(df_new.index)
         df_new.index.name = "datetime"
         df_new = _standardize_columns(df_new)
