@@ -21,22 +21,18 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["ema50"]  = df["Close"].ewm(span=50,  adjust=False).mean()
     df["ema200"] = df["Close"].ewm(span=200, adjust=False).mean()
 
-    # RSI (14)
-    delta = df["Close"].diff()
-    gain  = delta.clip(lower=0)
-    loss  = (-delta).clip(lower=0)
-    avg_gain = gain.ewm(com=13, adjust=False).mean()
-    avg_loss = loss.ewm(com=13, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    df["rsi"] = 100 - (100 / (1 + rs))
+    # ATR (14)
+    df["tr"] = np.maximum.reduce([
+        df["High"] - df["Low"],
+        (df["High"] - df["Close"].shift(1)).abs(),
+        (df["Low"] - df["Close"].shift(1)).abs()
+    ])
+    df["atr"] = df["tr"].ewm(span=14, adjust=False).mean()
 
-    # VWAP intradía
-    df["date"] = df.index.date
-    df["tp"]   = (df["High"] + df["Low"] + df["Close"]) / 3
-    df["cum_tpv"] = (df["tp"] * df["Volume"]).groupby(df["date"]).cumsum()
-    df["cum_vol"] = df["Volume"].groupby(df["date"]).cumsum()
-    df["vwap"] = df["cum_tpv"] / df["cum_vol"].replace(0, np.nan)
-    df.drop(columns=["date", "tp", "cum_tpv", "cum_vol"], inplace=True)
+    # Spread estimado si no existe (0.5% del ATR como proxy para yfinance si no hay spread real)
+    if "spread" not in df.columns:
+        df["spread"] = df["atr"] * 0.05
+    
     
     df = detect_swing_points(df)
     return df
@@ -83,5 +79,8 @@ def align_timeframes(dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     merged = pd.merge_asof(df_base, df_1d, left_index=True, right_index=True, direction='backward')
     merged = pd.merge_asof(merged, df_4h, left_index=True, right_index=True, direction='backward')
     merged = pd.merge_asof(merged, df_1h, left_index=True, right_index=True, direction='backward')
+    
+    # Deduplicar índices finales por si acaso
+    merged = merged[~merged.index.duplicated(keep="last")]
     
     return merged

@@ -14,14 +14,14 @@ El sistema ha sido dividido en una arquitectura de subdirectorios para facilitar
 - **`core/metrics.py`**: Analiza los resultados generados por el motor y calcula métricas clave de rentabilidad.
 - **`utils/visualization.py`**: Genera gráficos del dashboard general y el detalle individual por cada trade mostrando la confluencia de indicadores de distintos timeframes.
 
-## 2. Archivos Generados
+## 2. Archivos y Estructura Generada
 
-Al ejecutar el sistema, se generarán varios archivos dependiendo de tus parámetros:
+Al ejecutar el sistema, se generará una estructura limpia:
 
-1. **Datos CSV (Caché)**: `data_{symbol}_{interval}_{start}_{end}.csv`. Se guarda automáticamente para acelerar pruebas futuras y se lee si ya existe.
-2. **Dashboard de Resultados**: Por defecto `backtest_results.png`. Muestra el gráfico de precio con señales, RSI, curva de equidad y tabla de métricas.
-3. **Reporte de Operaciones (CSV)**: `backtest_results_trades.csv`. Un registro detallado de todas las posiciones tomadas.
-4. **Gráficos Individuales por Operación**: Se guardan en el directorio `trade_charts/`. Verás una imagen PNG por cada trade con un acercamiento (zoom) a las velas donde ocurrió la entrada y la salida, mostrando los EMAs y el PnL resultante.
+1. **Datos CSV (Caché)**: Se guardan en `data/{symbol}/15m.csv` (y los otros TFs) automáticamente con deduplicación.
+2. **Dashboard Global**: `backtest_results.png` en el directorio principal o donde indiques.
+3. **Reporte de Operaciones (CSV)**: `logs/trades.csv`. Un registro detallado de todas las posiciones tomadas y la justificación (`entry_reason`) en JSON.
+4. **Gráficos Individuales por Operación**: Se guardan en el directorio `charts/{symbol}/`. Verás una imagen PNG por cada trade con un panel principal (precio, EMAs, entry/stop) y un panel inferior (ATR y spread estimado).
 
 ## 3. Cómo Ejecutar el Sistema
 
@@ -31,41 +31,39 @@ Debes ejecutar el archivo `main.py` desde la línea de comandos utilizando Pytho
 
 - `--source`: **Requerido**. Puede ser `yfinance` u `oanda`.
 - `--symbol`: **Requerido**. El par o ticker a procesar (ej. `EURUSD=X`, `BTC-USD`).
-- `--start`: Fecha de inicio en formato `YYYY-MM-DD` (por defecto `2023-01-01`).
+- `--start`: Fecha de inicio en formato `YYYY-MM-DD` (por defecto `2024-01-01`).
 - `--end`: Fecha de fin en formato `YYYY-MM-DD` (por defecto es hoy).
-- `--interval`: Intervalo de tiempo para yfinance (ej. `1h`, `4h`, `1d`). Por defecto `1h`.
-- `--granularity`: Granularidad de OANDA (ej. `H1`, `H4`). Por defecto `H1`.
 - `--capital`: Capital inicial en USD (por defecto `10000`).
-- `--risk`: Porcentaje de riesgo por trade (0 a 1). Ej. `0.01` equivale a 1%.
+- `--risk`: Riesgo base inicial, actualmente sobreescrito a institucional (0.005 o 0.5% por operación).
+- `--mode`: Modo de operación de la estrategia: `long`, `short`, o `both` (por defecto `both`).
 - `--output`: Nombre del archivo de imagen con los resultados globales (por defecto `backtest_results.png`).
-- `--no-plot`: Oculta la generación del gráfico general si solo quieres ver la salida por consola y el CSV.
-- `--no-trades`: Oculta la generación de los gráficos individuales por operación para ahorrar espacio y tiempo.
-- `--trades-dir`: Define un nombre o ruta alternativa para la carpeta de gráficos individuales (por defecto `trade_charts`).
+- `--no-plot`: Oculta la generación del gráfico general.
+- `--no-trades`: Oculta la generación de los gráficos individuales por operación.
 
 ### Ejemplos de Uso
 
-**Ejemplo 1: Ejecución básica con yFinance (Forex)**
+**Ejemplo 1: Ejecución básica con yFinance (Forex - Solo Longs)**
 ```bash
-python main.py --source yfinance --symbol EURUSD=X --start 2024-01-01 --end 2024-03-01 --interval 1h
+python main.py --source yfinance --symbol EURUSD=X --start 2024-01-01 --mode long
 ```
 
-**Ejemplo 2: Ejecución para Criptomonedas con ajustes de capital**
+**Ejemplo 2: Ejecución para Criptomonedas (Ambas direcciones)**
 ```bash
-python main.py --source yfinance --symbol BTC-USD --start 2023-06-01 --capital 50000 --risk 0.02
+python main.py --source yfinance --symbol BTC-USD --start 2023-06-01 --capital 50000 --mode both
 ```
 
 **Ejemplo 3: Ejecución usando OANDA**
 *(Requiere que tengas configurada la variable de entorno `OANDA_API_KEY` o que la pases como parámetro).*
 ```bash
-python main.py --source oanda --symbol EUR_USD --granularity H1 --oanda-key "TU_API_KEY"
+python main.py --source oanda --symbol EUR_USD --oanda-key "TU_API_KEY"
 ```
 
-**Ejemplo 4: Ejecución rápida sin generar imágenes individuales (solo resultados)**
+**Ejemplo 4: Ejecución rápida sin generar imágenes individuales (solo resultados y CSV en logs/)**
 ```bash
 python main.py --source yfinance --symbol GBPUSD=X --no-trades
 ```
 
 ## 4. Notas Adicionales
 
-- Si has ejecutado el sistema previamente y cambias de idea sobre un periodo, recuerda que el caché se guarda por *rango de fecha* e *intervalo*. Si un CSV local cubre exactamente los mismos parámetros, se cargará en milisegundos evitando descargas repetidas.
-- Elimina el archivo `backtesting_strategy.py` antiguo de forma manual si ya has validado que el sistema modular funciona correctamente, esto evitará conflictos o confusiones en tu editor.
+- El orquestador descargará e interpolará los 4 timeframes de manera asíncrona pero determinista para evitar ver el futuro.
+- El log principal estará siempre vivo en `logs/trades.csv`, que puedes abrir en Excel o Google Sheets para realizar una auditoría de por qué se tomó cada entrada basándote en la columna `entry_reason`.

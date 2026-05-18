@@ -3,9 +3,11 @@ import sys
 import pandas as pd
 from typing import Optional, Dict
 
-def get_csv_filename(symbol: str, tf: str, source: str) -> str:
+def get_csv_filename(symbol: str, tf: str) -> str:
     clean_symbol = symbol.replace('/', '_').replace('=', '_')
-    return f"cache_{source}_{clean_symbol}_{tf}.csv"
+    dir_path = os.path.join("data", clean_symbol)
+    os.makedirs(dir_path, exist_ok=True)
+    return os.path.join(dir_path, f"{tf}.csv")
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Asegura que las columnas se llamen Open, High, Low, Close, Volume"""
@@ -18,7 +20,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df[cols].copy()
 
 def load_yfinance_tf(symbol: str, tf: str, start: str, end: str) -> pd.DataFrame:
-    csv_file = get_csv_filename(symbol, tf, "yf")
+    csv_file = get_csv_filename(symbol, tf)
     df_cache = pd.DataFrame()
     fetch_start = start
 
@@ -66,7 +68,10 @@ def load_yfinance_tf(symbol: str, tf: str, start: str, end: str) -> pd.DataFrame
         sys.exit(f"[ERROR] Sin datos para {symbol} en {tf}.")
 
 def load_oanda_tf(symbol: str, granularity: str, start: str, end: str, api_key: str, env: str) -> pd.DataFrame:
-    csv_file = get_csv_filename(symbol, granularity, "oanda")
+    # OANDA granularities mapping for file names (to match user expected 15m, 1h, 4h, 1d)
+    gran_map = {"M15": "15m", "H1": "1h", "H4": "4h", "D": "1d"}
+    file_tf = gran_map.get(granularity, granularity)
+    csv_file = get_csv_filename(symbol, file_tf)
     df_cache = pd.DataFrame()
     
     from_dt = pd.Timestamp(start).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -91,7 +96,7 @@ def load_oanda_tf(symbol: str, granularity: str, start: str, end: str, api_key: 
     if df_cache.empty:
         print(f"[OANDA] Descargando histórico completo {symbol} | {granularity} | Desde {from_dt}")
         
-    params = {"from": from_dt, "to": to_dt, "granularity": granularity, "count": 5000}
+    params = {"from": from_dt, "to": to_dt, "granularity": granularity, "count": 5000, "price": "MBA"}
     
     records = []
     r = instruments.InstrumentsCandles(symbol, params=params)
@@ -106,6 +111,7 @@ def load_oanda_tf(symbol: str, granularity: str, start: str, end: str, api_key: 
                     "Low":    float(candle["mid"]["l"]),
                     "Close":  float(candle["mid"]["c"]),
                     "Volume": int(candle["volume"]),
+                    "spread": float(candle["ask"]["c"]) - float(candle["bid"]["c"]) if "ask" in candle and "bid" in candle else 0.0
                 })
     except Exception as e:
         sys.exit(f"[ERROR] OANDA API: {e}")

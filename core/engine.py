@@ -10,16 +10,18 @@ class BacktestEngine:
 
     def __init__(self,
                  initial_capital: float = 10_000,
-                 risk_pct: float = 0.01,
+                 risk_pct: float = 0.005,
                  max_simultaneous: int = 3,
-                 max_dd_daily: float = 0.03,
-                 max_dd_weekly: float = 0.06,
+                 max_dd_daily: float = 0.02,
+                 max_dd_weekly: float = 0.05,
+                 max_dd_global: float = 0.15,
                  tp_levels: list = None):
         self.initial_capital  = initial_capital
         self.risk_pct         = risk_pct
         self.max_simultaneous = max_simultaneous
         self.max_dd_daily     = max_dd_daily
         self.max_dd_weekly    = max_dd_weekly
+        self.max_dd_global    = max_dd_global
         # Fracciones del take-profit parcial
         self.tp_levels = tp_levels or [
             (1.0, 0.33),   # TP1 → cierre 33 %
@@ -42,10 +44,12 @@ class BacktestEngine:
 
         week_start_cap = capital
         day_start_cap  = capital
+        peak_capital   = capital
         current_day    = None
         current_week   = None
         blocked_day    = False
         blocked_week   = False
+        blocked_global = False
 
         price_array = df["Close"].values
         high_array  = df["High"].values
@@ -125,15 +129,22 @@ class BacktestEngine:
             open_pos = remaining
 
             # ── drawdown checks ─────────────────────────
+            if capital > peak_capital:
+                peak_capital = capital
+                
+            dd_global = (capital - peak_capital) / peak_capital
             dd_day  = (capital - day_start_cap)  / day_start_cap
             dd_week = (capital - week_start_cap) / week_start_cap
+            
+            if dd_global <= -self.max_dd_global:
+                blocked_global = True
             if dd_day  <= -self.max_dd_daily:
                 blocked_day  = True
             if dd_week <= -self.max_dd_weekly:
                 blocked_week = True
 
             # ── abrir nuevas posiciones ──────────────────
-            if (not blocked_day and not blocked_week and
+            if (not blocked_global and not blocked_day and not blocked_week and
                     len(open_pos) < self.max_simultaneous):
 
                 row = df.iloc[idx]
@@ -153,6 +164,7 @@ class BacktestEngine:
                             "size":       size,
                             "orig_size":  size,
                             "entry_date": dt,
+                            "entry_reason": row.get("entry_reason", "")
                         }
                         open_pos.append(pos)
                         trade_id_counter += 1

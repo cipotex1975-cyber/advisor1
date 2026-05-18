@@ -44,7 +44,7 @@ En este modo, el bot verifica los datos inmediatamente, envía la notificación 
 
 ## 3. Ejemplo de Notificación
 
-Cuando el sistema detecte una convergencia perfecta en Diario, 4H, 1H y 15m, recibirás un mensaje así en tu Telegram:
+Cuando el sistema detecte la configuración perfecta (1D: Tendencia EMAs, 4H: Contexto, 15m: Gatillo de rechazo y pullback) respetando las restricciones de riesgo y volatilidad, recibirás un mensaje así en tu Telegram:
 
 > 🚨 **NUEVA SEÑAL MULTI-TF DETECTADA** 🚨
 > 
@@ -53,11 +53,11 @@ Cuando el sistema detecte una convergencia perfecta en Diario, 4H, 1H y 15m, rec
 > 📈 **Dirección:** LONG 🟢
 > 
 > 🎯 **Entrada:** `1.08500`
-> 🛑 **Stop Loss:** `1.08250`
+> 🛑 **Stop Loss (ATR basado):** `1.08250`
 > ✅ **TP 1:** `1.08750`
 > ✅ **TP 2:** `1.09000`
 > 
-> ⚠️ _Asegúrate de validar la estructura antes de operar._
+> ⚠️ _Razón: {"macro_trend": "bullish", "rejection_candle": true...}_
 
 ---
 

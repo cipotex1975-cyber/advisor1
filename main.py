@@ -40,12 +40,18 @@ def parse_args():
                    help="Omitir la generación del gráfico general")
     p.add_argument("--no-trades", action="store_true",
                    help="Omitir la generación de gráficos individuales por operación")
-    p.add_argument("--trades-dir", default="trade_charts",
+    p.add_argument("--trades-dir", default="charts",
                    help="Directorio donde guardar los gráficos de cada trade")
+    p.add_argument("--mode", choices=["long", "short", "both"], default="both",
+                   help="Modo de operación: long, short o both (default: both)")
     return p.parse_args()
 
 def main():
     args = parse_args()
+
+    # ── 0. Crear directorios ─────────────────────────────
+    for d in ["reports", "backtests", "strategies", "charts", "logs"]:
+        os.makedirs(d, exist_ok=True)
 
     # ── 1. Carga de Datos Múltiples ──────────────────────
     print("[INFO] Descargando/Cargando datos Multi-Timeframe (1D, 4H, 1H, 15m)...")
@@ -68,8 +74,8 @@ def main():
         sys.exit(1)
 
     # ── 3. Generador de Señales ──────────────────────────
-    print("[INFO] Evaluando reglas y generando señales...")
-    df_signals = generate_signals(merged_df)
+    print(f"[INFO] Evaluando reglas y generando señales (Mode: {args.mode})...")
+    df_signals = generate_signals(merged_df, mode=args.mode)
     
     total_signals = (df_signals["signal"] != 0).sum()
     longs  = (df_signals["signal"] ==  1).sum()
@@ -106,7 +112,7 @@ def main():
 
     # ── 7. Exportación y Gráficos Individuales ───────────
     if not trades_df.empty:
-        csv_path = args.output.replace(".png", "_trades.csv")
+        csv_path = os.path.join("logs", "trades.csv")
         trades_df.to_csv(csv_path, index=False)
         print(f"[CSV]   Trades exportados: {csv_path}")
 

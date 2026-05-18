@@ -19,46 +19,38 @@ pip install oandapyV20
 ### Con yfinance (más fácil, sin cuenta)
 
 ```bash
-# Ejemplo: EUR/USD horario, 2023-2024
-python backtesting_strategy.py \
+# Ejemplo: EUR/USD Multi-Timeframe (descarga auto de 1d, 4h, 1h, 15m), 2023-2024
+python main.py \
   --source yfinance \
   --symbol "EURUSD=X" \
   --start 2023-01-01 \
   --end   2024-12-31 \
-  --interval 1h \
-  --capital 10000
+  --capital 10000 \
+  --mode both
 
-# Bitcoin (BTC) horario
-python backtesting_strategy.py \
+# Bitcoin (BTC) solo longs
+python main.py \
   --source yfinance \
   --symbol "BTC-USD" \
   --start 2023-06-01 \
   --end   2024-06-01 \
-  --capital 10000
-
-# Oro (XAU) diario
-python backtesting_strategy.py \
-  --source yfinance \
-  --symbol "GC=F" \
-  --start 2022-01-01 \
-  --end   2024-01-01 \
-  --interval 1d \
-  --capital 50000
+  --capital 10000 \
+  --mode long
 ```
 
 ### Con OANDA
 
 ```bash
 # Requiere API key de OANDA (cuenta demo gratuita)
-python backtesting_strategy.py \
+python main.py \
   --source oanda \
   --symbol "EUR_USD" \
   --start 2023-01-01 \
   --end   2024-12-31 \
-  --granularity H1 \
   --oanda-key TU_API_KEY \
   --oanda-env practice \
-  --capital 10000
+  --capital 10000 \
+  --mode both
 ```
 
 ---
@@ -69,77 +61,39 @@ python backtesting_strategy.py \
 |------------------|------------------------------------------------|----------------|
 | `--source`       | `yfinance` o `oanda`                           | requerido      |
 | `--symbol`       | Ticker o par (ver tabla abajo)                 | requerido      |
-| `--start`        | Fecha inicio `YYYY-MM-DD`                      | `2023-01-01`   |
+| `--start`        | Fecha inicio `YYYY-MM-DD`                      | `2024-01-01`   |
 | `--end`          | Fecha fin    `YYYY-MM-DD`                      | hoy            |
-| `--interval`     | Intervalo yfinance (`1h`, `4h`, `1d` …)        | `1h`           |
-| `--granularity`  | Granularidad OANDA (`H1`, `H4`, `D` …)         | `H1`           |
 | `--capital`      | Capital inicial en USD                         | `10000`        |
 | `--risk`         | Riesgo por operación (0–1)                     | `0.01` (1%)    |
+| `--mode`         | Modo de estrategia: `long`, `short` o `both`   | `both`         |
 | `--oanda-key`    | API key de OANDA                               | `OANDA_API_KEY`|
 | `--oanda-env`    | Entorno OANDA (`practice` / `live`)            | `practice`     |
-| `--output`       | Ruta del gráfico PNG                           | `backtest_results.png` |
-| `--no-plot`      | Omitir generación del gráfico                  | —              |
+| `--output`       | Ruta del gráfico PNG global                    | `backtest_results.png` |
+| `--no-plot`      | Omitir generación del gráfico global           | —              |
+| `--no-trades`    | Omitir la generación de gráficos individuales  | —              |
 
 ---
 
-## Símbolos de ejemplo
+## Archivos y Directorios Generados
 
-### yfinance
-| Instrumento | Símbolo yfinance |
-|-------------|-----------------|
-| EUR/USD     | `EURUSD=X`      |
-| GBP/USD     | `GBPUSD=X`      |
-| USD/JPY     | `USDJPY=X`      |
-| BTC/USD     | `BTC-USD`       |
-| ETH/USD     | `ETH-USD`       |
-| Oro         | `GC=F`          |
-| S&P 500     | `^GSPC`         |
-
-### OANDA
-| Instrumento | Símbolo OANDA |
-|-------------|---------------|
-| EUR/USD     | `EUR_USD`     |
-| GBP/USD     | `GBP_USD`     |
-| USD/JPY     | `USD_JPY`     |
-| BTC/USD     | `BTC_USD`     |
-| XAU/USD     | `XAU_USD`     |
-
----
-
-## Archivos generados
-
-- `backtest_results.png` — Dashboard con 4 gráficos: precio + EMAs, RSI, curva de equity, métricas
-- `backtest_results_trades.csv` — Registro detallado de todas las operaciones
-
----
-
-## Métricas calculadas
-
-- Capital inicial / final
-- Retorno total %
-- Número de operaciones
-- Win Rate %
-- Profit Factor
-- Máximo Drawdown %
-- Expectativa matemática ($)
-- Sharpe Ratio
-- Desglose longs / shorts
-
-**Umbrales objetivo del PDF:**
-- Win Rate > 40 %
-- Profit Factor > 1.5
+El bot crea automáticamente una estructura limpia:
+- `/data/{symbol}/` — Guarda los CSV (15m.csv, 1h.csv, 4h.csv, 1d.csv) deduplicados.
+- `/charts/{symbol}/` — Gráficos individuales de cada trade analizado con 2 paneles (Precio y ATR/Spread).
+- `/logs/trades.csv` — Registro detallado de todas las operaciones y la justificación JSON (`entry_reason`).
+- `/reports`, `/backtests`, `/strategies` — Carpetas reservadas para expansiones futuras.
 
 ---
 
 ## Reglas de la estrategia implementadas
 
-- Confirmación con EMA 50 y EMA 200
-- Señal LONG / SHORT con retroceso hacia EMA 50 (tolerancia ±0.2%)
-- RSI filtrado entre 35–65
-- Stop Loss dinámico basado en mínimo/máximo estructural reciente
-- Take Profit parcial en 1:1 (33%), 1:2 (33%), 1:3 (34%)
-- Máximo 1% de riesgo por operación
-- Máximo 3 operaciones simultáneas
-- Drawdown diario máximo: 3%
-- Drawdown semanal máximo: 6%
-- Move to breakeven en TP1
+- **Contexto Macro (1D):** EMA50 > EMA200 (Long) o EMA50 < EMA200 (Short).
+- **Estructura (4H):** Precio por encima de EMA50 (Long) o por debajo de EMA50 (Short).
+- **Gatillo (15m):** Vela de rechazo con mecha clara + pullback previo.
+- **Stop Loss:** Calculado de forma dinámica usando la estructura de 15m/1H con un colchón basado en el **ATR de 15m**. Nunca stops fijos.
+- **Take Profit:** Parcial en niveles 1:1, 1:2, 1:3.
+- **Gestión Institucional de Riesgo:**
+  - Máximo 0.5% de riesgo por operación.
+  - Drawdown diario máximo: 2%.
+  - Drawdown semanal máximo: 5%.
+  - Drawdown global absoluto máximo: 15%.
+  - Máximo 3 operaciones simultáneas.

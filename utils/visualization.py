@@ -121,7 +121,7 @@ def plot_results(df: pd.DataFrame,
 
 
 def plot_trade(df: pd.DataFrame, trade: dict, symbol: str, save_dir: str):
-    """Genera un gráfico individual de entrada/salida para una operación."""
+    """Genera un gráfico individual de entrada/salida para una operación con 2 paneles."""
     os.makedirs(save_dir, exist_ok=True)
     
     entry_date = trade['entry_date']
@@ -137,7 +137,11 @@ def plot_trade(df: pd.DataFrame, trade: dict, symbol: str, save_dir: str):
     df_slice = df.iloc[start_idx:end_idx+1]
     
     plt.style.use("dark_background")
-    fig, ax = plt.subplots(figsize=(12, 6), facecolor="#0d1117")
+    fig = plt.figure(figsize=(14, 8), facecolor="#0d1117")
+    gs = gridspec.GridSpec(2, 1, figure=fig, height_ratios=[3, 1], hspace=0.1)
+    
+    # --- Panel 1: Precio ---
+    ax = fig.add_subplot(gs[0, 0])
     ax.set_facecolor("#161b22")
     
     ax.vlines(df_slice.index, df_slice['Low'], df_slice['High'], color='#58a6ff', alpha=0.3, linewidth=1)
@@ -147,38 +151,59 @@ def plot_trade(df: pd.DataFrame, trade: dict, symbol: str, save_dir: str):
         ax.plot(df_slice.index, df_slice["ema50_4h"],  color="#ffd60a", lw=1.5, label="EMA 50 (4H)")
     if "ema200_1d" in df.columns:
         ax.plot(df_slice.index, df_slice["ema200_1d"], color="#ff4d6d", lw=1.5, label="EMA 200 (1D)")
+        
+    # Swing points
+    if "swing_high" in df.columns:
+        swings_h = df_slice[df_slice["swing_high"]]
+        ax.scatter(swings_h.index, swings_h["High"], color="#ff7b72", marker="v", s=50, alpha=0.8, label="Swing High")
+    if "swing_low" in df.columns:
+        swings_l = df_slice[df_slice["swing_low"]]
+        ax.scatter(swings_l.index, swings_l["Low"], color="#7ee787", marker="^", s=50, alpha=0.8, label="Swing Low")
     
     ax.axhline(trade['entry'], color='white', linestyle='--', lw=1, label=f"Entry: {trade['entry']:.5f}")
     ax.axhline(trade['stop'], color='#ff4d6d', linestyle='-', lw=1, label=f"SL: {trade['stop']:.5f}")
     
-    if not pd.isna(trade['tp1']):
-        ax.axhline(trade['tp1'], color='#00d4aa', linestyle='--', lw=0.8, alpha=0.7)
-    if not pd.isna(trade['tp2']):
-        ax.axhline(trade['tp2'], color='#00d4aa', linestyle='--', lw=0.8, alpha=0.7)
-    if not pd.isna(trade['tp3']):
-        ax.axhline(trade['tp3'], color='#00d4aa', linestyle='--', lw=0.8, alpha=0.7, label="TPs")
+    if not pd.isna(trade.get('tp1')): ax.axhline(trade['tp1'], color='#00d4aa', linestyle='--', lw=0.8, alpha=0.7)
+    if not pd.isna(trade.get('tp2')): ax.axhline(trade['tp2'], color='#00d4aa', linestyle='--', lw=0.8, alpha=0.7)
+    if not pd.isna(trade.get('tp3')): ax.axhline(trade['tp3'], color='#00d4aa', linestyle='--', lw=0.8, alpha=0.7, label="TPs")
 
     marker_color = '#00d4aa' if trade['direction'] == 1 else '#ff4d6d'
     marker_label = 'LONG Entry' if trade['direction'] == 1 else 'SHORT Entry'
     
-    ax.scatter(entry_date, trade['entry'], color=marker_color, s=100, zorder=5, label=marker_label, marker='^' if trade['direction']==1 else 'v')
+    ax.scatter(entry_date, trade['entry'], color=marker_color, s=150, zorder=5, label=marker_label, marker='^' if trade['direction']==1 else 'v')
     
     pnl_color = '#00d4aa' if trade['pnl'] > 0 else '#ff4d6d'
-    ax.scatter(exit_date, df.loc[exit_date, 'Close'], color=pnl_color, s=100, zorder=5, label='Última Salida', marker='o')
+    ax.scatter(exit_date, df.loc[exit_date, 'Close'], color=pnl_color, s=150, zorder=5, label='Última Salida', marker='o')
     
     trade_type = "LONG" if trade['direction'] == 1 else "SHORT"
     res_str = "WIN" if trade['pnl'] > 0 else "LOSS"
     
     ax.set_title(f"Trade #{trade['trade_id']} | {symbol} | {trade_type} | PnL: {trade['pnl']:.2f} ({res_str})", color="white", fontsize=12, pad=10)
     
-    ax.tick_params(colors="#8b949e")
+    ax.tick_params(colors="#8b949e", labelbottom=False)
     ax.spines[:].set_color("#30363d")
     ax.legend(facecolor="#161b22", edgecolor="#30363d", labelcolor="white", fontsize=9, loc="best")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+    
+    # --- Panel 2: Inferior (ATR y Spread) ---
+    ax2 = fig.add_subplot(gs[1, 0])
+    ax2.set_facecolor("#161b22")
+    
+    if "atr" in df.columns:
+        ax2.plot(df_slice.index, df_slice["atr"], color="#d2a8ff", lw=1.2, label="ATR (14)")
+    if "spread" in df.columns:
+        ax2.plot(df_slice.index, df_slice["spread"], color="#ffa657", lw=1.0, ls="--", label="Spread")
+        
+    ax2.tick_params(colors="#8b949e")
+    ax2.spines[:].set_color("#30363d")
+    ax2.legend(facecolor="#161b22", edgecolor="#30363d", labelcolor="white", fontsize=9, loc="upper left")
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
     
     fig.autofmt_xdate()
     
-    filename = f"trade_{trade['trade_id']:03d}_{trade_type}_{res_str}.png"
-    filepath = os.path.join(save_dir, filename)
-    plt.savefig(filepath, dpi=100, bbox_inches="tight", facecolor=fig.get_facecolor())
+    timestamp_str = pd.to_datetime(entry_date).strftime("%Y%m%d_%H%M")
+    filename = f"trade_{timestamp_str}_{trade_type}_{res_str}.png"
+    filepath = os.path.join(save_dir, symbol, filename)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    
+    plt.savefig(filepath, dpi=120, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
