@@ -18,8 +18,8 @@ def parse_args():
         description="Backtesting – Estrategia Multi-Timeframe Forex/Crypto",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    p.add_argument("--source",   choices=["yfinance", "oanda", "fxcm", "dukascopy"], required=True,
-                   help="Fuente de datos: yfinance | oanda | fxcm | dukascopy")
+    p.add_argument("--source",   choices=["yfinance", "oanda", "fxcm", "alphavantage"], required=True,
+                   help="Fuente de datos: yfinance | oanda | fxcm | alphavantage")
     p.add_argument("--symbol",   required=True,
                    help="Par o ticker (ej. EURUSD=X, BTC-USD)")
     p.add_argument("--start",    default="2024-01-01",
@@ -40,6 +40,8 @@ def parse_args():
                    help="Entorno FXCM  (default: demo)")
     p.add_argument("--oanda-env", default="practice", choices=["practice","live"],
                    help="Entorno OANDA  (default: practice)")
+    p.add_argument("--alphavantage-key", default=None,
+                   help="API key de Alpha Vantage (o usa ALPHAVANTAGE_API_KEY)")
     p.add_argument("--output",   default="backtest_results.png",
                    help="Ruta del gráfico de salida general")
     p.add_argument("--no-plot",  action="store_true",
@@ -70,7 +72,8 @@ def main():
         oanda_env=args.oanda_env,
         fxcm_user=args.fxcm_user,
         fxcm_pass=args.fxcm_pass,
-        fxcm_env=args.fxcm_env
+        fxcm_env=args.fxcm_env,
+        alphavantage_key=args.alphavantage_key
     )
 
     # ── 2. Indicadores y Alineación ──────────────────────

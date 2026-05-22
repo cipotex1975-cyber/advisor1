@@ -253,88 +253,92 @@ def load_fxcm_tf(symbol: str, granularity: str, start: str, end: str, fxcm_user:
             return df_cache
         sys.exit(f"[ERROR] Sin datos de FXCM para {symbol} en {granularity}.")
 
-def load_dukascopy_tf(symbol: str, tf: str, start: str, end: str) -> pd.DataFrame:
-    tf_map = {"15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D"}
-    pandas_tf = tf_map.get(tf, tf)
-    
+def load_alphavantage_tf(symbol: str, tf: str, start: str, end: str, api_key: str) -> pd.DataFrame:
     csv_file = get_csv_filename(symbol, tf)
     df_cache = pd.DataFrame()
-    fetch_start = pd.to_datetime(start)
-    fetch_end = pd.to_datetime(end)
-    
+
     if os.path.exists(csv_file):
         df_cache = pd.read_csv(csv_file, index_col="datetime", parse_dates=True)
-        if not df_cache.empty:
-            last_dt = df_cache.index[-1]
-            fetch_start = pd.to_datetime(last_dt)
-            print(f"[DUKASCOPY] Caché local encontrado. Actualizando {symbol} | {tf} desde {fetch_start}...")
 
-    if fetch_start >= fetch_end:
-        return df_cache
+    if tf == "4h":
+        # Cargar/Descargar 1h y remuestrear a 4h
+        df_1h = load_alphavantage_tf(symbol, "1h", start, end, api_key)
+        if df_1h.empty:
+            sys.exit("[ERROR] No se pudo obtener datos de 1h para generar el timeframe de 4h con Alpha Vantage.")
+        resample_rules = {
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }
+        df_new = df_1h.resample('4h').agg(resample_rules).dropna()
+        df_new.to_csv(csv_file)
+        return df_new
 
-    print(f"[DUKASCOPY] Descargando ticks para {symbol} | {tf} desde {fetch_start} a {fetch_end}. Esto puede demorar...")
-    
-    clean_symbol = symbol.replace('/', '').replace('=', '').replace('_', '').replace('-', '')
-    if clean_symbol.endswith('X'): clean_symbol = clean_symbol[:-1]
-    
-    BASE_URL = "https://www.dukascopy.com/datafeed"
+    # Detectar si es un par Forex para usar endpoints de FX o de acciones
+    clean_sym = symbol.replace('/', '').replace('_', '').replace('=', '').replace('-', '').upper()
+    if clean_sym.endswith('X'):
+        clean_sym = clean_sym[:-1]
+        
+    is_forex = len(clean_sym) == 6 and not clean_sym.startswith("BTC")
+
+    interval = "15min" if tf == "15m" else "60min"
+
     import requests
-    import lzma
-    import struct
-    
-    s_dt = fetch_start.tz_localize(None)
-    e_dt = fetch_end.tz_localize(None)
-    hours = pd.date_range(start=s_dt.floor('h'), end=e_dt.ceil('h'), freq='h')
-    
-    session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-    
-    point = 1000.0 if "JPY" in clean_symbol.upper() else 100000.0
-    
-    all_ohlcv = []
-    current_records = []
-    
-    def process_records(records):
-        if not records: return None
-        df_ticks = pd.DataFrame(records)
-        df_ticks.set_index("datetime", inplace=True)
-        ohlc = df_ticks['bid'].resample(pandas_tf).ohlc()
-        vol = (df_ticks['bid_vol'] + df_ticks['ask_vol']).resample(pandas_tf).sum()
-        ohlc['Volume'] = vol
-        return ohlc.dropna()
 
-    for i, hr in enumerate(hours):
-        url = f"{BASE_URL}/{clean_symbol}/{hr.year}/{hr.month - 1:02d}/{hr.day:02d}/{hr.hour:02d}h_ticks.bi5"
-        try:
-            resp = session.get(url, timeout=10)
-            if resp.status_code == 200 and resp.content:
-                data = lzma.decompress(resp.content)
-                chunk_size = struct.calcsize(">3I2f")
-                for j in range(0, len(data), chunk_size):
-                    chunk = data[j:j+chunk_size]
-                    if len(chunk) < chunk_size: break
-                    ms, ask, bid, ask_vol, bid_vol = struct.unpack(">3I2f", chunk)
-                    tick_time = hr + pd.Timedelta(milliseconds=ms)
-                    current_records.append({
-                        "datetime": tick_time,
-                        "bid": bid / point,
-                        "ask_vol": ask_vol,
-                        "bid_vol": bid_vol
-                    })
-        except Exception:
-            pass
-            
-        if len(current_records) > 0 and (i % 24 == 0 or i == len(hours) - 1):
-            resampled = process_records(current_records)
-            if resampled is not None and not resampled.empty:
-                all_ohlcv.append(resampled)
-            current_records = []
-            
-    if all_ohlcv:
-        df_new = pd.concat(all_ohlcv)
-        df_new = df_new[~df_new.index.duplicated(keep='last')]
-        df_new.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
-        df_new = _standardize_columns(df_new)
+    if is_forex:
+        from_symbol = clean_sym[:3]
+        to_symbol = clean_sym[3:]
+        if tf == "1d":
+            function = "FX_DAILY"
+            key_name = "Time Series FX (Daily)"
+            url = f"https://www.alphavantage.co/query?function={function}&from_symbol={from_symbol}&to_symbol={to_symbol}&apikey={api_key}&outputsize=full&datatype=json"
+        else:
+            function = "FX_INTRADAY"
+            key_name = f"Time Series FX ({interval})"
+            url = f"https://www.alphavantage.co/query?function={function}&from_symbol={from_symbol}&to_symbol={to_symbol}&interval={interval}&apikey={api_key}&outputsize=full&datatype=json"
+    else:
+        if tf == "1d":
+            function = "TIME_SERIES_DAILY"
+            key_name = "Time Series (Daily)"
+            url = f"https://www.alphavantage.co/query?function={function}&symbol={symbol}&apikey={api_key}&outputsize=full&datatype=json"
+        else:
+            function = "TIME_SERIES_INTRADAY"
+            key_name = f"Time Series ({interval})"
+            url = f"https://www.alphavantage.co/query?function={function}&symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=full&datatype=json"
+
+    print(f"[AlphaVantage] Descargando {symbol} | {tf}...")
+    try:
+        r = requests.get(url, timeout=15)
+        data = r.json()
+    except Exception as e:
+        if not df_cache.empty:
+            print(f"[AlphaVantage] Fallo al descargar ({e}). Usando caché local.")
+            return df_cache
+        sys.exit(f"[ERROR] Alpha Vantage API falló: {e}")
+
+    if "Note" in data:
+        print(f"[AlphaVantage] Nota de API: {data['Note']}")
+        if not df_cache.empty:
+            print("[AlphaVantage] Usando caché local debido a límite de llamadas.")
+            return df_cache
+        sys.exit("[ERROR] Alpha Vantage: Límite de llamadas alcanzado y sin caché local.")
+
+    if "Error Message" in data:
+        if not df_cache.empty:
+            print(f"[AlphaVantage] Error de API ({data['Error Message']}). Usando caché local.")
+            return df_cache
+        sys.exit(f"[ERROR] Alpha Vantage API: {data['Error Message']}")
+
+    if key_name in data:
+        df_raw = pd.DataFrame.from_dict(data[key_name], orient='index')
+        df_raw.index = pd.to_datetime(df_raw.index)
+        df_raw.sort_index(inplace=True)
+        df_raw.columns = [col.split('. ')[1] for col in df_raw.columns]
+        df_raw.index.name = "datetime"
+        
+        df_new = _standardize_columns(df_raw)
         
         if not df_cache.empty:
             df_combined = pd.concat([df_cache, df_new])
@@ -347,10 +351,11 @@ def load_dukascopy_tf(symbol: str, tf: str, start: str, end: str) -> pd.DataFram
         return df_combined
     else:
         if not df_cache.empty:
+            print(f"[AlphaVantage] No se encontraron nuevos datos en la respuesta. Usando caché.")
             return df_cache
-        sys.exit(f"[ERROR] Sin datos de Dukascopy para {symbol} en {tf}.")
+        sys.exit(f"[ERROR] Sin datos en respuesta de Alpha Vantage para {symbol} en {tf}. Respuesta: {data}")
 
-def load_multi_timeframe(source: str, symbol: str, start: str, end: str, oanda_key: Optional[str]=None, oanda_env: str="practice", fxcm_user: Optional[str]=None, fxcm_pass: Optional[str]=None, fxcm_env: str="demo") -> Dict[str, pd.DataFrame]:
+def load_multi_timeframe(source: str, symbol: str, start: str, end: str, oanda_key: Optional[str]=None, oanda_env: str="practice", fxcm_user: Optional[str]=None, fxcm_pass: Optional[str]=None, fxcm_env: str="demo", alphavantage_key: Optional[str]=None) -> Dict[str, pd.DataFrame]:
     """Descarga o carga de caché los 4 timeframes requeridos."""
     dfs = {}
     
@@ -383,9 +388,14 @@ def load_multi_timeframe(source: str, symbol: str, start: str, end: str, oanda_k
 
         for key, gran in tfs.items():
             dfs[key] = load_fxcm_tf(symbol, gran, start, end, fxcm_user=fxcm_user, fxcm_pass=fxcm_pass, fxcm_env=fxcm_env)
-    elif source == "dukascopy":
+    elif source == "alphavantage":
         tfs = {"1d": "1d", "4h": "4h", "1h": "1h", "15m": "15m"}
+        if not alphavantage_key:
+            alphavantage_key = os.environ.get("ALPHAVANTAGE_API_KEY", "")
+        if not alphavantage_key:
+            sys.exit("[ERROR] Alpha Vantage API key requerida.")
+            
         for key, tf in tfs.items():
-            dfs[key] = load_dukascopy_tf(symbol, tf, start, end)
+            dfs[key] = load_alphavantage_tf(symbol, tf, start, end, alphavantage_key)
             
     return dfs

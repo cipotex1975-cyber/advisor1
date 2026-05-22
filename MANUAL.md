@@ -29,7 +29,7 @@ Debes ejecutar el archivo `main.py` desde la línea de comandos utilizando Pytho
 
 ### Parámetros Disponibles
 
-- `--source`: **Requerido**. Puede ser `yfinance`, `oanda`, `fxcm` o `dukascopy`.
+- `--source`: **Requerido**. Puede ser `yfinance`, `oanda`, `fxcm` o `alphavantage`.
 - `--symbol`: **Requerido**. El par o ticker a procesar (ej. `EURUSD=X`, `BTC-USD`).
 - `--start`: Fecha de inicio en formato `YYYY-MM-DD` (por defecto `2024-01-01`).
 - `--end`: Fecha de fin en formato `YYYY-MM-DD` (por defecto es hoy).
@@ -39,6 +39,7 @@ Debes ejecutar el archivo `main.py` desde la línea de comandos utilizando Pytho
 - `--output`: Nombre del archivo de imagen con los resultados globales (por defecto `backtest_results.png`).
 - `--no-plot`: Oculta la generación del gráfico general.
 - `--no-trades`: Oculta la generación de los gráficos individuales por operación.
+- `--alphavantage-key`: API key de Alpha Vantage (o puedes usar la variable de entorno `ALPHAVANTAGE_API_KEY`).
 
 ### Ejemplos de Uso
 
@@ -69,9 +70,10 @@ python main.py --source yfinance --symbol GBPUSD=X --no-trades
 python main.py --source fxcm --symbol EUR/USD --fxcm-user "TU_USUARIO" --fxcm-pass "TU_PASSWORD"
 ```
 
-**Ejemplo 6: Ejecución usando Dukascopy (Datos históricos gratuitos nativos)**
+**Ejemplo 6: Ejecución usando Alpha Vantage**
+*(Requiere que tengas configurada la variable de entorno `ALPHAVANTAGE_API_KEY` o que la pases como parámetro).*
 ```bash
-python main.py --source dukascopy --symbol EURUSD --start 2024-01-01
+python main.py --source alphavantage --symbol EURUSD --alphavantage-key "TU_API_KEY"
 ```
 
 ## 4. Notas Adicionales

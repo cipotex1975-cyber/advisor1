@@ -40,7 +40,7 @@ python live_bot.py --source yfinance --symbols EURUSD=X USDCAD=X USDJPY=X --tele
 ```
 En este modo, el bot verifica los datos inmediatamente, envía la notificación si existe, y el script termina.
 
-*(Nota: Además de `yfinance`, puedes usar `--source oanda`, `--source fxcm` o `--source dukascopy`. Asegúrate de escribir los `--symbols` en el formato correcto para cada proveedor, por ejemplo `EURUSD` para dukascopy).*
+*(Nota: Además de `yfinance`, puedes usar `--source oanda` o `--source fxcm`. Asegúrate de escribir los `--symbols` en el formato correcto para cada proveedor).*
 
 ---
 

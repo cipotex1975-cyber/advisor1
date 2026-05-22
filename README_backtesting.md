@@ -68,15 +68,16 @@ python main.py \
   --mode both
 ```
 
-### Con Dukascopy
+### Con Alpha Vantage
 
 ```bash
-# Datos históricos gratuitos (descarga y procesa archivos .bi5 automáticamente)
+# Requiere API key de Alpha Vantage (gratuita)
 python main.py \
-  --source dukascopy \
+  --source alphavantage \
   --symbol "EURUSD" \
   --start 2023-01-01 \
-  --end   2023-02-01 \
+  --end   2024-12-31 \
+  --alphavantage-key TU_API_KEY \
   --capital 10000 \
   --mode both
 ```
@@ -87,7 +88,7 @@ python main.py \
 
 | Parámetro        | Descripción                                    | Defecto        |
 |------------------|------------------------------------------------|----------------|
-| `--source`       | `yfinance`, `oanda`, `fxcm` o `dukascopy`      | requerido      |
+| `--source`       | `yfinance`, `oanda`, `fxcm` o `alphavantage`  | requerido      |
 | `--symbol`       | Ticker o par (ver dependencias de formato)     | requerido      |
 | `--start`        | Fecha inicio `YYYY-MM-DD`                      | `2024-01-01`   |
 | `--end`          | Fecha fin    `YYYY-MM-DD`                      | hoy            |
@@ -99,6 +100,7 @@ python main.py \
 | `--fxcm-pass`    | Contraseña de FXCM                             | `FXCM_PASS`    |
 | `--oanda-env`    | Entorno OANDA (`practice` / `live`)            | `practice`     |
 | `--fxcm-env`     | Entorno FXCM (`demo` / `real`)                 | `demo`         |
+| `--alphavantage-key` | API key de Alpha Vantage                    | `ALPHAVANTAGE_API_KEY` |
 | `--output`       | Ruta del gráfico PNG global                    | `backtest_results.png` |
 | `--no-plot`      | Omitir generación del gráfico global           | —              |
 | `--no-trades`    | Omitir la generación de gráficos individuales  | —              |
@@ -112,7 +114,7 @@ python main.py \
 | yFinance   | `BASEQUOTE=X`  | `EURUSD=X`  |
 | OANDA      | `BASE_QUOTE`   | `EUR_USD`   |
 | FXCM       | `BASE/QUOTE`   | `EUR/USD`   |
-| Dukascopy  | `BASEQUOTE`    | `EURUSD`    |
+| AlphaVantage| `BASEQUOTE`    | `EURUSD`    |
 
 ---
 
