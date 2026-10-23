@@ -1,0 +1,763 @@
+//+------------------------------------------------------------------+
+//|                                           BreakoutPullbackEA.mq5 |
+//|     Estrategia: Tendencia H1 + Ruptura Rango 8h + Pullback >=50% |
+//|                 + Senal de Confirmacion en M15 + R:R 2:1         |
+//+------------------------------------------------------------------+
+#property copyright "Breakout & Pullback Trend Following EA"
+#property link      ""
+#property version   "1.00"
+#property strict
+
+#include <Trade\Trade.mqh>
+
+//+------------------------------------------------------------------+
+//| Enumeraciones                                                    |
+//+------------------------------------------------------------------+
+enum ENUM_SIGNAL_MODE
+  {
+   SIGNAL_ANY_PRICE_ACTION = 0, // Cualquiera (Envolvente, Pinbar o Ruptura Vela Previa)
+   SIGNAL_ENGULFING_ONLY   = 1, // Solo Vela Envolvente (Engulfing)
+   SIGNAL_PINBAR_ENGULF    = 2, // Solo Pinbar de Rechazo o Envolvente
+   SIGNAL_MICRO_BREAKOUT   = 3  // Cierre superando Max/Min de vela M15 previa
+  };
+
+enum ENUM_SETUP_STATE
+  {
+   STATE_SCANNING_BREAKOUT = 0, // Buscando rango >= 8h y ruptura en H1
+   STATE_WAITING_PULLBACK  = 1, // Ruptura confirmada, esperando retroceso >= 50% o soporte
+   STATE_IN_PULLBACK_ZONE  = 2  // En zona de soporte/50%, esperando senal de entrada M15
+  };
+
+//+------------------------------------------------------------------+
+//| Parametros de Entrada (Inputs)                                   |
+//+------------------------------------------------------------------+
+input group "=== 1. Configuracion de Temporalidades ==="
+input ENUM_TIMEFRAMES  InpTrendTF             = PERIOD_H1;               // Temporalidad de Tendencia y Rango (H1)
+input ENUM_TIMEFRAMES  InpEntryTF             = PERIOD_M15;              // Temporalidad de Confirmacion y Entrada (M15)
+
+input group "=== 2. Filtro de Tendencia Principal (H1) ==="
+input int              InpEMAFastPeriod       = 50;                      // Periodo EMA Rapida (H1)
+input int              InpEMASlowPeriod       = 200;                     // Periodo EMA Lenta (H1)
+input bool             InpStrictEMAOrder      = true;                    // Exigir Precio > EMA50 > EMA200 (o viceversa)
+
+input group "=== 3. Rango de Consolidacion y Ruptura (H1) ==="
+input int              InpMinRangeHours       = 8;                       // Horas minimas en rango antes de la ruptura
+input double           InpMaxRangeATRMult     = 2.8;                     // Altura maxima del rango en multiplos de ATR(H1)
+input double           InpBreakoutMinATR      = 0.15;                    // Margen minimo de cierre fuera del rango (x ATR H1)
+input double           InpBreakoutBodyATR     = 0.50;                    // Cuerpo minimo de la vela de ruptura (x ATR H1)
+input int              InpATRPeriod           = 14;                      // Periodo del indicador ATR
+
+input group "=== 4. Pullback y Senal de Confirmacion (M15) ==="
+input double           InpMinPullbackPct      = 50.0;                    // Retroceso minimo requerido del impulso (%)
+input double           InpSupportZoneATR      = 0.30;                    // Tolerancia de zona de soporte/resistencia (x ATR M15)
+input ENUM_SIGNAL_MODE InpSignalMode          = SIGNAL_ANY_PRICE_ACTION; // Tipo de Senal de Entrada en M15
+input int              InpMaxM15BarsWait      = 48;                      // Maximo de velas M15 esperando el pullback/entrada
+
+input group "=== 5. Gestion de Riesgo, Stop Loss y Ratio 2:1 ==="
+input double           InpRiskPercent         = 5.0;                     // Riesgo por operacion (% de la cuenta)
+input double           InpRewardRiskRatio     = 2.0;                     // Ratio Beneficio:Riesgo (2.0 = Ratio 2:1)
+input double           InpSLBufferATR         = 1.0;                     // Holgura del Stop Loss bajo soporte (x ATR M15)
+input bool             InpUseBreakEven        = true;                    // Activar Break Even al llegar a 1:1
+input double           InpBreakEvenTriggerRR  = 1.0;                     // Ratio R:R para activar Break Even
+
+input group "=== 6. Horario (Sesion Europea y Americana) y Day Trading ==="
+input bool             InpUseTimeFilter       = true;                    // Filtrar por horario de sesiones
+input int              InpStartHour           = 8;                       // Hora de inicio permitida (Hora Servidor, ej. 08:00 Europa)
+input int              InpEndHour             = 20;                      // Hora limite para nuevas entradas (ej. 20:00 America)
+input bool             InpCloseEndOfDay       = true;                    // Cerrar operaciones al final del dia (Day Trading)
+input int              InpCloseHour           = 22;                      // Hora de cierre intradia (Hora Servidor)
+
+input group "=== 7. Ajustes Generales y Visualizacion ==="
+input ulong            InpMagicNumber         = 20261023;                // Magic Number del EA
+input int              InpMaxSpreadPoints     = 35;                      // Spread maximo permitido (en puntos, 0 = desactivar)
+input bool             InpDrawObjects         = true;                    // Dibujar rango y niveles en el grafico
+
+//+------------------------------------------------------------------+
+//| Variables Globales                                               |
+//+------------------------------------------------------------------+
+CTrade            trade;
+int               hEMAFast_H1  = INVALID_HANDLE;
+int               hEMASlow_H1  = INVALID_HANDLE;
+int               hATR_H1      = INVALID_HANDLE;
+int               hATR_M15     = INVALID_HANDLE;
+
+ENUM_SETUP_STATE  g_state      = STATE_SCANNING_BREAKOUT;
+int               g_direction  = 0;        // 1 = Alcista (BUY), -1 = Bajista (SELL)
+double            g_rangeHigh  = 0.0;
+double            g_rangeLow   = 0.0;
+datetime          g_rangeStart = 0;
+datetime          g_breakTime  = 0;
+double            g_impulseStart = 0.0;
+double            g_impulsePeak  = 0.0;
+double            g_pullbackExtreme = 0.0; // Minimo del pullback (en compras) o maximo (en ventas)
+int               g_m15BarsElapsed  = 0;
+
+datetime          g_lastH1BarTime  = 0;
+datetime          g_lastM15BarTime = 0;
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   trade.SetExpertMagicNumber(InpMagicNumber);
+   trade.SetDeviationInPoints(15);
+   trade.SetTypeFillingBySymbol(_Symbol);
+
+   // Crear manejadores de indicadores
+   hEMAFast_H1 = iMA(_Symbol, InpTrendTF, InpEMAFastPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   hEMASlow_H1 = iMA(_Symbol, InpTrendTF, InpEMASlowPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   hATR_H1     = iATR(_Symbol, InpTrendTF, InpATRPeriod);
+   hATR_M15    = iATR(_Symbol, InpEntryTF, InpATRPeriod);
+
+   if(hEMAFast_H1 == INVALID_HANDLE || hEMASlow_H1 == INVALID_HANDLE ||
+      hATR_H1 == INVALID_HANDLE     || hATR_M15 == INVALID_HANDLE)
+     {
+      Print("Error al crear los indicadores del EA.");
+      return(INIT_FAILED);
+     }
+
+   ResetSetup();
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   if(hEMAFast_H1 != INVALID_HANDLE) IndicatorRelease(hEMAFast_H1);
+   if(hEMASlow_H1 != INVALID_HANDLE) IndicatorRelease(hEMASlow_H1);
+   if(hATR_H1     != INVALID_HANDLE) IndicatorRelease(hATR_H1);
+   if(hATR_M15    != INVALID_HANDLE) IndicatorRelease(hATR_M15);
+
+   if(InpDrawObjects)
+      ObjectsDeleteAll(0, "BPEA_");
+  }
+
+//+------------------------------------------------------------------+
+//| Reiniciar el estado del Setup                                    |
+//+------------------------------------------------------------------+
+void ResetSetup()
+  {
+   g_state           = STATE_SCANNING_BREAKOUT;
+   g_direction       = 0;
+   g_rangeHigh       = 0.0;
+   g_rangeLow        = 0.0;
+   g_rangeStart      = 0;
+   g_breakTime       = 0;
+   g_impulseStart    = 0.0;
+   g_impulsePeak     = 0.0;
+   g_pullbackExtreme = 0.0;
+   g_m15BarsElapsed  = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| Obtener valor de indicador                                       |
+//+------------------------------------------------------------------+
+double GetIndicatorValue(int handle, int shift)
+  {
+   double buf[1];
+   if(CopyBuffer(handle, 0, shift, 1, buf) != 1)
+      return 0.0;
+   return buf[0];
+  }
+
+//+------------------------------------------------------------------+
+//| Verificar si hay posicion abierta de este EA                     |
+//+------------------------------------------------------------------+
+bool HasOpenPosition()
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket > 0)
+        {
+         if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
+            PositionGetInteger(POSITION_MAGIC) == (long)InpMagicNumber)
+            return true;
+        }
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Cerrar todas las posiciones del EA (Day Trading Cierre Fin Dia)  |
+//+------------------------------------------------------------------+
+void CloseAllPositions()
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket > 0)
+        {
+         if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
+            PositionGetInteger(POSITION_MAGIC) == (long)InpMagicNumber)
+           {
+            trade.PositionClose(ticket);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Gestionar Break Even cuando la operacion alcanza 1:1             |
+//+------------------------------------------------------------------+
+void ManageBreakEven()
+  {
+   if(!InpUseBreakEven)
+      return;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol ||
+         PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+         continue;
+
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl        = PositionGetDouble(POSITION_SL);
+      double tp        = PositionGetDouble(POSITION_TP);
+      long   type      = PositionGetInteger(POSITION_TYPE);
+
+      if(sl == 0.0 || tp == 0.0) continue;
+
+      // Calcular el riesgo inicial a partir del TP y el Ratio R:R
+      double tpDist      = MathAbs(tp - openPrice);
+      double initSlDist  = tpDist / InpRewardRiskRatio;
+      if(initSlDist <= 0.0) continue;
+
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      if(type == POSITION_TYPE_BUY)
+        {
+         if(sl < openPrice && (bid - openPrice) >= (initSlDist * InpBreakEvenTriggerRR))
+           {
+            double newSL = NormalizeDouble(openPrice + (2 * _Point), _Digits);
+            trade.PositionModify(ticket, newSL, tp);
+           }
+        }
+      else if(type == POSITION_TYPE_SELL)
+        {
+         if(sl > openPrice && (openPrice - ask) >= (initSlDist * InpBreakEvenTriggerRR))
+           {
+            double newSL = NormalizeDouble(openPrice - (2 * _Point), _Digits);
+            trade.PositionModify(ticket, newSL, tp);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Verificar horario permitido de sesion                            |
+//+------------------------------------------------------------------+
+bool IsWithinTradingSession()
+  {
+   if(!InpUseTimeFilter)
+      return true;
+
+   MqlDateTime dt;
+   TimeCurrent(dt);
+
+   if(InpStartHour < InpEndHour)
+      return (dt.hour >= InpStartHour && dt.hour < InpEndHour);
+   else
+      return (dt.hour >= InpStartHour || dt.hour < InpEndHour);
+  }
+
+//+------------------------------------------------------------------+
+//| Determinar Tendencia Clara en H1                                 |
+//| Devuelve: 1 = Alcista, -1 = Bajista, 0 = Sin tendencia clara     |
+//+------------------------------------------------------------------+
+int GetH1TrendDirection()
+  {
+   double emaFast1 = GetIndicatorValue(hEMAFast_H1, 1);
+   double emaSlow1 = GetIndicatorValue(hEMASlow_H1, 1);
+   double emaFast2 = GetIndicatorValue(hEMAFast_H1, 2);
+   double close1   = iClose(_Symbol, InpTrendTF, 1);
+
+   if(emaFast1 == 0.0 || emaSlow1 == 0.0)
+      return 0;
+
+   if(InpStrictEMAOrder)
+     {
+      if(close1 > emaFast1 && emaFast1 > emaSlow1 && emaFast1 >= emaFast2)
+         return 1;
+      if(close1 < emaFast1 && emaFast1 < emaSlow1 && emaFast1 <= emaFast2)
+         return -1;
+     }
+   else
+     {
+      if(close1 > emaSlow1 && emaFast1 > emaSlow1)
+         return 1;
+      if(close1 < emaSlow1 && emaFast1 < emaSlow1)
+         return -1;
+     }
+
+   return 0;
+  }
+
+//+------------------------------------------------------------------+
+//| Detectar Rango de >= 8 horas en H1 y Ruptura en la vela cerrada  |
+//+------------------------------------------------------------------+
+bool DetectRangeAndBreakoutH1()
+  {
+   int trend = GetH1TrendDirection();
+   if(trend == 0)
+      return false;
+
+   double atrH1 = GetIndicatorValue(hATR_H1, 1);
+   if(atrH1 <= 0.0)
+      return false;
+
+   // La vela 1 en H1 es la candidata a vela de ruptura.
+   // Las velas desde shift = 2 hasta shift = 1 + InpMinRangeHours forman el rango previo (>= 8 horas).
+   double rangeHigh = -DBL_MAX;
+   double rangeLow  = DBL_MAX;
+
+   for(int i = 2; i <= 1 + InpMinRangeHours; i++)
+     {
+      double h = iHigh(_Symbol, InpTrendTF, i);
+      double l = iLow(_Symbol, InpTrendTF, i);
+      if(h > rangeHigh) rangeHigh = h;
+      if(l < rangeLow)  rangeLow  = l;
+     }
+
+   double rangeHeight = rangeHigh - rangeLow;
+   // Validar que el rango de 8h haya sido realmente una consolidacion lateral compacta
+   if(rangeHeight <= 0.0 || rangeHeight > (InpMaxRangeATRMult * atrH1))
+      return false;
+
+   // Datos de la vela 1 de H1 (vela de ruptura)
+   double open1  = iOpen(_Symbol, InpTrendTF, 1);
+   double close1 = iClose(_Symbol, InpTrendTF, 1);
+   double high1  = iHigh(_Symbol, InpTrendTF, 1);
+   double low1   = iLow(_Symbol, InpTrendTF, 1);
+   double body1  = MathAbs(close1 - open1);
+
+   // Verificar que la vela tenga cuerpo fuerte ("sale disparada")
+   if(body1 < (InpBreakoutBodyATR * atrH1))
+      return false;
+
+   // Ruptura Alcista en Tendencia Alcista
+   if(trend == 1 && close1 > (rangeHigh + InpBreakoutMinATR * atrH1))
+     {
+      g_direction       = 1;
+      g_rangeHigh       = rangeHigh;
+      g_rangeLow        = rangeLow;
+      g_rangeStart      = iTime(_Symbol, InpTrendTF, 1 + InpMinRangeHours);
+      g_breakTime       = iTime(_Symbol, InpTrendTF, 1);
+      g_impulseStart    = rangeLow;
+      g_impulsePeak     = high1;
+      g_pullbackExtreme = high1;
+      g_state           = STATE_WAITING_PULLBACK;
+      g_m15BarsElapsed  = 0;
+
+      DrawSetupVisuals();
+      PrintFormat("Ruptura ALCISTA detectada en H1. Rango [%.5f - %.5f]. Esperando pullback >= %.1f%%",
+                  g_rangeLow, g_rangeHigh, InpMinPullbackPct);
+      return true;
+     }
+
+   // Ruptura Bajista en Tendencia Bajista
+   if(trend == -1 && close1 < (rangeLow - InpBreakoutMinATR * atrH1))
+     {
+      g_direction       = -1;
+      g_rangeHigh       = rangeHigh;
+      g_rangeLow        = rangeLow;
+      g_rangeStart      = iTime(_Symbol, InpTrendTF, 1 + InpMinRangeHours);
+      g_breakTime       = iTime(_Symbol, InpTrendTF, 1);
+      g_impulseStart    = rangeHigh;
+      g_impulsePeak     = low1;
+      g_pullbackExtreme = low1;
+      g_state           = STATE_WAITING_PULLBACK;
+      g_m15BarsElapsed  = 0;
+
+      DrawSetupVisuals();
+      PrintFormat("Ruptura BAJISTA detectada en H1. Rango [%.5f - %.5f]. Esperando pullback >= %.1f%%",
+                  g_rangeLow, g_rangeHigh, InpMinPullbackPct);
+      return true;
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Evaluar Senal de Confirmacion / Gatillo de Entrada en M15        |
+//| (Se evalua en la vela 1 de M15 recien cerrada)                   |
+//+------------------------------------------------------------------+
+bool CheckM15EntrySignal(int direction)
+  {
+   double open1  = iOpen(_Symbol, InpEntryTF, 1);
+   double close1 = iClose(_Symbol, InpEntryTF, 1);
+   double high1  = iHigh(_Symbol, InpEntryTF, 1);
+   double low1   = iLow(_Symbol, InpEntryTF, 1);
+
+   double open2  = iOpen(_Symbol, InpEntryTF, 2);
+   double close2 = iClose(_Symbol, InpEntryTF, 2);
+   double high2  = iHigh(_Symbol, InpEntryTF, 2);
+   double low2   = iLow(_Symbol, InpEntryTF, 2);
+
+   double range1 = high1 - low1;
+   double body1  = MathAbs(close1 - open1);
+   if(range1 <= 0.0) return false;
+
+   if(direction == 1) // Buscando Senal de COMPRA tras el pullback
+     {
+      // La vela de confirmacion debe ser alcista
+      if(close1 <= open1)
+         return false;
+
+      // 1. Vela Envolvente Alcista (Bullish Engulfing)
+      bool isEngulfing = (close2 < open2) && (close1 >= open2) && (open1 <= close2) && (body1 > MathAbs(close2 - open2));
+
+      // 2. Pinbar / Martillo de rechazo alcista en soporte (mecha inferior >= 55% de la vela y cierre en tercio superior)
+      double lowerWick = MathMin(open1, close1) - low1;
+      bool isPinbar    = (lowerWick >= 0.55 * range1) && (close1 >= (high1 - 0.35 * range1));
+
+      // 3. Ruptura de Micro-Estructura (Cierre superando el maximo de la vela M15 previa con cuerpo solido)
+      bool isMicroBreak = (close1 > high2) && (body1 >= 0.45 * range1);
+
+      if(InpSignalMode == SIGNAL_ENGULFING_ONLY)
+         return isEngulfing;
+      if(InpSignalMode == SIGNAL_PINBAR_ENGULF)
+         return (isEngulfing || isPinbar);
+      if(InpSignalMode == SIGNAL_MICRO_BREAKOUT)
+         return isMicroBreak;
+
+      return (isEngulfing || isPinbar || isMicroBreak);
+     }
+   else if(direction == -1) // Buscando Senal de VENTA tras el pullback
+     {
+      // La vela de confirmacion debe ser bajista
+      if(close1 >= open1)
+         return false;
+
+      // 1. Vela Envolvente Bajista (Bearish Engulfing)
+      bool isEngulfing = (close2 > open2) && (close1 <= open2) && (open1 >= close2) && (body1 > MathAbs(close2 - open2));
+
+      // 2. Pinbar / Estrella fugaz de rechazo bajista en resistencia (mecha superior >= 55% de la vela)
+      double upperWick = high1 - MathMax(open1, close1);
+      bool isPinbar    = (upperWick >= 0.55 * range1) && (close1 <= (low1 + 0.35 * range1));
+
+      // 3. Ruptura de Micro-Estructura (Cierre rompiendo el minimo de la vela M15 previa con cuerpo solido)
+      bool isMicroBreak = (close1 < low2) && (body1 >= 0.45 * range1);
+
+      if(InpSignalMode == SIGNAL_ENGULFING_ONLY)
+         return isEngulfing;
+      if(InpSignalMode == SIGNAL_PINBAR_ENGULF)
+         return (isEngulfing || isPinbar);
+      if(InpSignalMode == SIGNAL_MICRO_BREAKOUT)
+         return isMicroBreak;
+
+      return (isEngulfing || isPinbar || isMicroBreak);
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Calcular Lotaje Dinamico en base al % de Riesgo y distancia SL   |
+//+------------------------------------------------------------------+
+double CalculateLotSize(double slDistancePrice)
+  {
+   if(slDistancePrice <= 0.0)
+      return 0.0;
+
+   double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double riskMoney  = balance * (InpRiskPercent / 100.0);
+
+   double tickValue  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize   = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double minLot     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot     = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+
+   if(tickValue <= 0.0 || tickSize <= 0.0 || lotStep <= 0.0)
+      return minLot;
+
+   double lossPerLot = (slDistancePrice / tickSize) * tickValue;
+   if(lossPerLot <= 0.0)
+      return minLot;
+
+   double rawLots = riskMoney / lossPerLot;
+   double lots    = MathFloor(rawLots / lotStep) * lotStep;
+
+   if(lots < minLot) lots = minLot;
+   if(lots > maxLot) lots = maxLot;
+
+   return NormalizeDouble(lots, 2);
+  }
+
+//+------------------------------------------------------------------+
+//| Ejecutar Orden con Stop Loss Protegido y Take Profit 2:1         |
+//+------------------------------------------------------------------+
+void ExecuteTrade(int direction)
+  {
+   if(!IsWithinTradingSession())
+      return;
+
+   if(InpMaxSpreadPoints > 0)
+     {
+      long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+      if(spread > InpMaxSpreadPoints)
+        {
+         PrintFormat("Operacion omitida por Spread alto: %d puntos (Max: %d)", spread, InpMaxSpreadPoints);
+         return;
+        }
+     }
+
+   double atrM15 = GetIndicatorValue(hATR_M15, 1);
+   if(atrM15 <= 0.0)
+      return;
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   if(direction == 1) // COMPRA (BUY)
+     {
+      // El soporte es el menor entre el minimo del pullback y el borde superior del rango roto (ahora soporte)
+      double supportLevel = MathMin(g_pullbackExtreme, g_rangeHigh);
+      // Colocar SL debajo del soporte con holgura ATR para evitar barridos
+      double slPrice      = NormalizeDouble(supportLevel - (InpSLBufferATR * atrM15), _Digits);
+      double slDistance   = ask - slPrice;
+
+      if(slDistance <= (2 * _Point))
+         return;
+
+      // Take Profit con Ratio Beneficio:Riesgo 2:1 (o el configurado)
+      double tpPrice = NormalizeDouble(ask + (slDistance * InpRewardRiskRatio), _Digits);
+      double lots    = CalculateLotSize(slDistance);
+
+      if(trade.Buy(lots, _Symbol, ask, slPrice, tpPrice, "BPEA Buy 2:1"))
+        {
+         PrintFormat("COMPRA ejecutada: Lotes=%.2f | Entrada=%.5f | SL=%.5f | TP=%.5f (Ratio %.1f:1)",
+                     lots, ask, slPrice, tpPrice, InpRewardRiskRatio);
+         ResetSetup();
+        }
+     }
+   else if(direction == -1) // VENTA (SELL)
+     {
+      // La resistencia es el mayor entre el maximo del pullback y el borde inferior del rango roto (ahora resistencia)
+      double resistanceLevel = MathMax(g_pullbackExtreme, g_rangeLow);
+      // Colocar SL arriba de la resistencia con holgura ATR
+      double slPrice         = NormalizeDouble(resistanceLevel + (InpSLBufferATR * atrM15), _Digits);
+      double slDistance      = slPrice - bid;
+
+      if(slDistance <= (2 * _Point))
+         return;
+
+      // Take Profit con Ratio Beneficio:Riesgo 2:1 (o el configurado)
+      double tpPrice = NormalizeDouble(bid - (slDistance * InpRewardRiskRatio), _Digits);
+      double lots    = CalculateLotSize(slDistance);
+
+      if(trade.Sell(lots, _Symbol, bid, slPrice, tpPrice, "BPEA Sell 2:1"))
+        {
+         PrintFormat("VENTA ejecutada: Lotes=%.2f | Entrada=%.5f | SL=%.5f | TP=%.5f (Ratio %.1f:1)",
+                     lots, bid, slPrice, tpPrice, InpRewardRiskRatio);
+         ResetSetup();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Actualizar el estado del Pullback y Senal en cada vela de M15    |
+//+------------------------------------------------------------------+
+void UpdatePullbackAndSignalM15()
+  {
+   if(g_state == STATE_SCANNING_BREAKOUT)
+      return;
+
+   g_m15BarsElapsed++;
+   if(g_m15BarsElapsed > InpMaxM15BarsWait)
+     {
+      Print("Setup expirado por tiempo maximo de espera en M15. Reiniciando busqueda.");
+      ResetSetup();
+      return;
+     }
+
+   double high1  = iHigh(_Symbol, InpEntryTF, 1);
+   double low1   = iLow(_Symbol, InpEntryTF, 1);
+   double close1 = iClose(_Symbol, InpEntryTF, 1);
+   double atrM15 = GetIndicatorValue(hATR_M15, 1);
+
+   if(g_direction == 1) // Setup ALCISTA
+     {
+      // Si el precio cierra por debajo del minimo del rango, la ruptura fallo (invalidar setup)
+      if(close1 < g_rangeLow)
+        {
+         Print("Setup Alcista invalidado: el precio volvio por debajo del piso del rango.");
+         ResetSetup();
+         return;
+        }
+
+      // Si aun no ha entrado a zona de pullback y hace un nuevo maximo, actualizar pico del impulso
+      if(g_state == STATE_WAITING_PULLBACK && high1 > g_impulsePeak)
+        {
+         g_impulsePeak     = high1;
+         g_pullbackExtreme = high1;
+         DrawSetupVisuals();
+        }
+
+      // Registrar el punto mas bajo del retroceso actual
+      if(low1 < g_pullbackExtreme)
+         g_pullbackExtreme = low1;
+
+      // Calcular nivel del 50% de retroceso del impulso (desde base del rango hasta el pico del impulso)
+      double impulseSize   = g_impulsePeak - g_impulseStart;
+      double fib50Level    = g_impulsePeak - (impulseSize * (InpMinPullbackPct / 100.0));
+      double supportBuffer = g_rangeHigh + (InpSupportZoneATR * atrM15);
+
+      // Condicion de Pullback: retrocede al menos el 50% del impulso o retestea el soporte del rango roto
+      if(g_state == STATE_WAITING_PULLBACK)
+        {
+         if(low1 <= fib50Level || low1 <= supportBuffer)
+           {
+            g_state = STATE_IN_PULLBACK_ZONE;
+            PrintFormat("Pullback Alcista confirmado (Minimo=%.5f <= Zona 50%%/Soporte). Buscando senal de entrada en M15...", low1);
+           }
+        }
+
+      // Si ya estamos en la zona del pullback, NO comprar a ciegas: exigir senal de confirmacion M15
+      if(g_state == STATE_IN_PULLBACK_ZONE)
+        {
+         if(CheckM15EntrySignal(1))
+           {
+            ExecuteTrade(1);
+           }
+        }
+     }
+   else if(g_direction == -1) // Setup BAJISTA
+     {
+      // Si el precio cierra por encima del maximo del rango, la ruptura fallo (invalidar setup)
+      if(close1 > g_rangeHigh)
+        {
+         Print("Setup Bajista invalidado: el precio volvio por encima del techo del rango.");
+         ResetSetup();
+         return;
+        }
+
+      // Si aun no ha entrado a zona de pullback y hace un nuevo minimo, actualizar pico del impulso
+      if(g_state == STATE_WAITING_PULLBACK && low1 < g_impulsePeak)
+        {
+         g_impulsePeak     = low1;
+         g_pullbackExtreme = low1;
+         DrawSetupVisuals();
+        }
+
+      // Registrar el punto mas alto del retroceso actual
+      if(high1 > g_pullbackExtreme)
+         g_pullbackExtreme = high1;
+
+      // Calcular nivel del 50% de retroceso del impulso bajista
+      double impulseSize      = g_impulseStart - g_impulsePeak;
+      double fib50Level       = g_impulsePeak + (impulseSize * (InpMinPullbackPct / 100.0));
+      double resistanceBuffer = g_rangeLow - (InpSupportZoneATR * atrM15);
+
+      // Condicion de Pullback: retrocede al menos el 50% del impulso o retestea la resistencia del rango roto
+      if(g_state == STATE_WAITING_PULLBACK)
+        {
+         if(high1 >= fib50Level || high1 >= resistanceBuffer)
+           {
+            g_state = STATE_IN_PULLBACK_ZONE;
+            PrintFormat("Pullback Bajista confirmado (Maximo=%.5f >= Zona 50%%/Resistencia). Buscando senal de entrada en M15...", high1);
+           }
+        }
+
+      // Si ya estamos en la zona del pullback, esperar senal de confirmacion M15
+      if(g_state == STATE_IN_PULLBACK_ZONE)
+        {
+         if(CheckM15EntrySignal(-1))
+           {
+            ExecuteTrade(-1);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Dibujar el rango detectado y el nivel del 50% en el grafico      |
+//+------------------------------------------------------------------+
+void DrawSetupVisuals()
+  {
+   if(!InpDrawObjects)
+      return;
+
+   string boxName  = "BPEA_RangeBox_" + TimeToString(g_breakTime);
+   string lineName = "BPEA_Fib50_"    + TimeToString(g_breakTime);
+
+   color boxColor = (g_direction == 1) ? clrDodgerBlue : clrCrimson;
+
+   if(ObjectFind(0, boxName) < 0)
+      ObjectCreate(0, boxName, OBJ_RECTANGLE, 0, g_rangeStart, g_rangeHigh, g_breakTime, g_rangeLow);
+   ObjectSetInteger(0, boxName, OBJPROP_COLOR, boxColor);
+   ObjectSetInteger(0, boxName, OBJPROP_BACK, true);
+   ObjectSetInteger(0, boxName, OBJPROP_WIDTH, 2);
+
+   double fib50 = (g_direction == 1)
+                  ? g_impulsePeak - ((g_impulsePeak - g_impulseStart) * (InpMinPullbackPct / 100.0))
+                  : g_impulsePeak + ((g_impulseStart - g_impulsePeak) * (InpMinPullbackPct / 100.0));
+
+   if(ObjectFind(0, lineName) < 0)
+      ObjectCreate(0, lineName, OBJ_TREND, 0, g_breakTime, fib50, g_breakTime + PeriodSeconds(PERIOD_H1) * 6, fib50);
+   else
+     {
+      ObjectMove(0, lineName, 0, g_breakTime, fib50);
+      ObjectMove(0, lineName, 1, g_breakTime + PeriodSeconds(PERIOD_H1) * 6, fib50);
+     }
+   ObjectSetInteger(0, lineName, OBJPROP_COLOR, clrGold);
+   ObjectSetInteger(0, lineName, OBJPROP_STYLE, STYLE_DASH);
+   ObjectSetInteger(0, lineName, OBJPROP_RAY_RIGHT, false);
+  }
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+   // 1. Gestionar cierre al final del dia (Day Trading)
+   if(InpCloseEndOfDay)
+     {
+      MqlDateTime dt;
+      TimeCurrent(dt);
+      if(dt.hour >= InpCloseHour)
+        {
+         if(HasOpenPosition())
+            CloseAllPositions();
+         return;
+        }
+     }
+
+   // 2. Gestionar Break Even si hay posicion abierta
+   if(HasOpenPosition())
+     {
+      ManageBreakEven();
+      return; // Maximo 1 operacion abierta a la vez
+     }
+
+   // 3. Evaluar nueva vela en M15 para seguimiento del Pullback y Senal de Entrada
+   datetime currentM15Time = iTime(_Symbol, InpEntryTF, 0);
+   if(currentM15Time != g_lastM15BarTime)
+     {
+      g_lastM15BarTime = currentM15Time;
+      if(g_state != STATE_SCANNING_BREAKOUT)
+        {
+         UpdatePullbackAndSignalM15();
+        }
+     }
+
+   // 4. Evaluar nueva vela en H1 para detectar nuevos Rangos de >=8h y Rupturas
+   datetime currentH1Time = iTime(_Symbol, InpTrendTF, 0);
+   if(currentH1Time != g_lastH1BarTime)
+     {
+      g_lastH1BarTime = currentH1Time;
+      if(g_state == STATE_SCANNING_BREAKOUT)
+        {
+         DetectRangeAndBreakoutH1();
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+
